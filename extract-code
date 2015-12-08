@@ -1,0 +1,3 @@
+#!/bin/bash
+
+objcopy --dump-section .text=$1.bin $1
