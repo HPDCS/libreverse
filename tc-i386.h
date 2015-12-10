@@ -29,8 +29,8 @@ struct fix;
 
 #define TARGET_ARCH		(i386_arch ())
 #define TARGET_MACH		(i386_mach ())
-extern enum bfd_architecture i386_arch (void);
-extern unsigned long i386_mach (void);
+extern enum bfd_architecture i386_arch(void);
+extern unsigned long i386_mach(void);
 
 #ifdef TE_FreeBSD
 #define AOUT_TARGET_FORMAT	"a.out-i386-freebsd"
@@ -93,7 +93,7 @@ extern unsigned long i386_mach (void);
 #if ((defined (OBJ_MAYBE_COFF) && defined (OBJ_MAYBE_AOUT)) \
      || defined (OBJ_ELF) || defined (OBJ_MAYBE_ELF) \
      || defined (TE_PE) || defined (TE_PEP) || defined (OBJ_MACH_O))
-extern const char *i386_target_format (void);
+extern const char *i386_target_format(void);
 #define TARGET_FORMAT i386_target_format ()
 #else
 #ifdef TE_GO32
@@ -106,7 +106,7 @@ extern const char *i386_target_format (void);
 
 #if (defined (OBJ_MAYBE_ELF) || defined (OBJ_ELF))
 #define md_end i386_elf_emit_arch_note
-extern void i386_elf_emit_arch_note (void);
+extern void i386_elf_emit_arch_note(void);
 #endif
 
 #define SUB_SEGMENT_ALIGN(SEG, FRCHAIN) 0
@@ -132,25 +132,24 @@ extern const char *i386_comment_chars;
 #if (defined (OBJ_ELF) || defined (OBJ_MAYBE_ELF)) && !defined (LEX_AT)
 #define TC_PARSE_CONS_EXPRESSION(EXP, NBYTES) x86_cons (EXP, NBYTES)
 #endif
-extern bfd_reloc_code_real_type x86_cons (expressionS *, int);
+extern bfd_reloc_code_real_type x86_cons(expressionS *, int);
 
 #define TC_CONS_FIX_NEW(FRAG, OFF, LEN, EXP, RELOC)	\
   x86_cons_fix_new(FRAG, OFF, LEN, EXP, RELOC)
-extern void x86_cons_fix_new
-(fragS *, unsigned int, unsigned int, expressionS *, bfd_reloc_code_real_type);
+extern void x86_cons_fix_new(fragS *, unsigned int, unsigned int, expressionS *, bfd_reloc_code_real_type);
 
 #define TC_ADDRESS_BYTES x86_address_bytes
-extern int x86_address_bytes (void);
+extern int x86_address_bytes(void);
 
-#define DIFF_EXPR_OK    /* foo-. gets turned into PC relative relocs */
+#define DIFF_EXPR_OK		/* foo-. gets turned into PC relative relocs */
 
 #define NO_RELOC BFD_RELOC_NONE
 
-void i386_validate_fix (struct fix *);
+void i386_validate_fix(struct fix *);
 #define TC_VALIDATE_FIX(FIX,SEGTYPE,SKIP) i386_validate_fix(FIX)
 
 #define tc_fix_adjustable(X)  tc_i386_fix_adjustable(X)
-extern int tc_i386_fix_adjustable (struct fix *);
+extern int tc_i386_fix_adjustable(struct fix *);
 
 /* Values passed to md_apply_fix don't include the symbol value.  */
 #define MD_APPLY_SYM_VALUE(FIX) 0
@@ -178,13 +177,13 @@ extern int tc_i386_fix_adjustable (struct fix *);
    || (FIX)->fx_r_type == BFD_RELOC_X86_64_GOTPCREL	\
    || TC_FORCE_RELOCATION (FIX))
 
-extern int i386_parse_name (char *, expressionS *, char *);
+extern int i386_parse_name(char *, expressionS *, char *);
 #define md_parse_name(s, e, m, c) i386_parse_name (s, e, c)
 
-extern operatorT i386_operator (const char *name, unsigned int operands, char *);
+extern operatorT i386_operator(const char *name, unsigned int operands, char *);
 #define md_operator i386_operator
 
-extern int i386_need_index_operator (void);
+extern int i386_need_index_operator(void);
 #define md_need_index_operator i386_need_index_operator
 
 #define md_register_arithmetic 0
@@ -208,7 +207,7 @@ if ((n)									\
 
 #define MAX_MEM_FOR_RS_ALIGN_CODE  31
 
-extern void i386_align_code (fragS *, int);
+extern void i386_align_code(fragS *, int);
 
 #define HANDLE_ALIGN(fragP)						\
 if (fragP->fr_type == rs_align_code) 					\
@@ -216,47 +215,45 @@ if (fragP->fr_type == rs_align_code) 					\
 			   - fragP->fr_address				\
 			   - fragP->fr_fix));
 
-void i386_print_statistics (FILE *);
+void i386_print_statistics(FILE *);
 #define tc_print_statistics i386_print_statistics
 
-extern unsigned int i386_frag_max_var (fragS *);
+extern unsigned int i386_frag_max_var(fragS *);
 #define md_frag_max_var i386_frag_max_var
 
 #define md_number_to_chars number_to_chars_littleendian
 
-enum processor_type
-{
-  PROCESSOR_UNKNOWN,
-  PROCESSOR_I386,
-  PROCESSOR_I486,
-  PROCESSOR_PENTIUM,
-  PROCESSOR_PENTIUMPRO,
-  PROCESSOR_PENTIUM4,
-  PROCESSOR_NOCONA,
-  PROCESSOR_CORE,
-  PROCESSOR_CORE2,
-  PROCESSOR_COREI7,
-  PROCESSOR_L1OM,
-  PROCESSOR_K1OM,
-  PROCESSOR_K6,
-  PROCESSOR_ATHLON,
-  PROCESSOR_K8,
-  PROCESSOR_GENERIC32,
-  PROCESSOR_GENERIC64,
-  PROCESSOR_AMDFAM10,
-  PROCESSOR_BD,
-  PROCESSOR_BT
+enum processor_type {
+	PROCESSOR_UNKNOWN,
+	PROCESSOR_I386,
+	PROCESSOR_I486,
+	PROCESSOR_PENTIUM,
+	PROCESSOR_PENTIUMPRO,
+	PROCESSOR_PENTIUM4,
+	PROCESSOR_NOCONA,
+	PROCESSOR_CORE,
+	PROCESSOR_CORE2,
+	PROCESSOR_COREI7,
+	PROCESSOR_L1OM,
+	PROCESSOR_K1OM,
+	PROCESSOR_K6,
+	PROCESSOR_ATHLON,
+	PROCESSOR_K8,
+	PROCESSOR_GENERIC32,
+	PROCESSOR_GENERIC64,
+	PROCESSOR_AMDFAM10,
+	PROCESSOR_BD,
+	PROCESSOR_BT
 };
 
 extern enum processor_type cpu_arch_tune;
 extern enum processor_type cpu_arch_isa;
 extern i386_cpu_flags cpu_arch_isa_flags;
 
-struct i386_tc_frag_data
-{
-  enum processor_type isa;
-  i386_cpu_flags isa_flags;
-  enum processor_type tune;
+struct i386_tc_frag_data {
+	enum processor_type isa;
+	i386_cpu_flags isa_flags;
+	enum processor_type tune;
 };
 
 /* We need to emit the right NOP pattern in .align frags.  This is
@@ -275,7 +272,7 @@ struct i386_tc_frag_data
 
 #ifdef SCO_ELF
 #define tc_init_after_args() sco_id ()
-extern void sco_id (void);
+extern void sco_id(void);
 #endif
 
 #define WORKING_DOT_WORD 1
@@ -289,26 +286,26 @@ extern unsigned int x86_dwarf2_return_column;
 extern int x86_cie_data_alignment;
 #define DWARF2_CIE_DATA_ALIGNMENT x86_cie_data_alignment
 
-extern int x86_dwarf2_addr_size (void);
+extern int x86_dwarf2_addr_size(void);
 #define DWARF2_ADDR_SIZE(bfd) x86_dwarf2_addr_size ()
 
 #define tc_parse_to_dw2regnum tc_x86_parse_to_dw2regnum
-extern void tc_x86_parse_to_dw2regnum (expressionS *);
+extern void tc_x86_parse_to_dw2regnum(expressionS *);
 
 #define tc_cfi_frame_initial_instructions tc_x86_frame_initial_instructions
-extern void tc_x86_frame_initial_instructions (void);
+extern void tc_x86_frame_initial_instructions(void);
 
 #define md_elf_section_type(str,len) i386_elf_section_type (str, len)
-extern int i386_elf_section_type (const char *, size_t);
+extern int i386_elf_section_type(const char *, size_t);
 
 #ifdef TE_SOLARIS
 #define md_fix_up_eh_frame(sec) i386_solaris_fix_up_eh_frame (sec)
-extern void i386_solaris_fix_up_eh_frame (segT);
+extern void i386_solaris_fix_up_eh_frame(segT);
 #endif
 
 /* Support for SHF_X86_64_LARGE */
-extern bfd_vma x86_64_section_word (char *, size_t);
-extern bfd_vma x86_64_section_letter (int, char **);
+extern bfd_vma x86_64_section_word(char *, size_t);
+extern bfd_vma x86_64_section_letter(int, char **);
 #define md_elf_section_letter(LETTER, PTR_MSG)	x86_64_section_letter (LETTER, PTR_MSG)
 #define md_elf_section_word(STR, LEN)		x86_64_section_word (STR, LEN)
 
@@ -317,9 +314,9 @@ extern bfd_vma x86_64_section_letter (int, char **);
 #define O_secrel O_md1
 
 #define TC_DWARF2_EMIT_OFFSET  tc_pe_dwarf2_emit_offset
-void tc_pe_dwarf2_emit_offset (symbolS *, unsigned int);
+void tc_pe_dwarf2_emit_offset(symbolS *, unsigned int);
 
-#endif /* TE_PE */
+#endif				/* TE_PE */
 
 /* X_add_symbol:X_op_symbol (Intel mode only) */
 #define O_full_ptr O_md2
@@ -336,6 +333,6 @@ void tc_pe_dwarf2_emit_offset (symbolS *, unsigned int);
 
 #define TC_VALIDATE_FIX_SUB(FIX, SEG) 1
 
-#endif /* OBJ_MACH_O */
+#endif				/* OBJ_MACH_O */
 
-#endif /* TC_I386 */
+#endif				/* TC_I386 */
