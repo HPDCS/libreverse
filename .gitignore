@@ -1,0 +1,5 @@
+*.o
+*.a
+a.out
+ldtest
+ldtest.exe
