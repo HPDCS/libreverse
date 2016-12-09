@@ -29,7 +29,7 @@
 
 #include <stdbool.h>
 
-#include "instruction.h"
+#include <insn.h>
 
 #define A32(f) ((f) & ADDR_32) // Indirizzi a 32 bit?
 #define D32(f) ((f) & DATA_32) // Dati a 32 bit?
