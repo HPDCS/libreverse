@@ -30,9 +30,7 @@
 #ifndef _INSTRUCTIONS_H
 #define _INSTRUCTIONS_H
 
-#include <x86/instruction.h>
-
-#include <executable.h>
+#include <x86/x86-insn.h>
 
 // [FV] Flags contenenti informazioni utili sul comportamento o la classe delle funzioni
 #define I_MEMRD		0x1	// Legge dalla memoria

@@ -30,3 +30,25 @@
 
 # Debug files
 *.dSYM/
+
+# Autotools stuff
+Makefile.in
+aclocal.m4
+autom4te.cache/
+compile
+configure
+depcomp
+install-sh
+ltmain.sh
+m4/
+missing
+.deps/
+Makefile
+ar-lib
+config.guess
+config.log
+config.status
+config.sub
+libtool
+.dirstamp
+test-driver

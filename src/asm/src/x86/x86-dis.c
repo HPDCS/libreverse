@@ -34,10 +34,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include <prints.h>
-#include <instruction.h>
-
+#include <insn.h>
 #include <x86/x86.h>
+#include <asm.h>
 
 /* Prototipi delle funzioni */
 
