@@ -230,7 +230,7 @@ void * worker(void *args) {
 		// gptr = malloc(sizeof(int));
 		// *gptr = 10;
 
-		printf("gptr allocated at %p => %d\n", gptr, *gptr);
+		//printf("gptr allocated at %p => %d\n", gptr, *gptr);
 
 		if (reverse) {
 			write_memory_instr(tid);
@@ -238,7 +238,7 @@ void * worker(void *args) {
 			// ptr = rmalloc(handler, sizeof(int));
 			// *ptr = 5;
 
-			printf("Allocated ptr = %p\n", ptr);
+			//printf("Allocated ptr = %p\n", ptr);
 
 			//rfree(handler, ptr);
 			// rfree(handler, gptr);
@@ -253,21 +253,23 @@ void * worker(void *args) {
 			printf("[TH%d] Starting rollback on memory...\n", tid);
 			execute_undo_event(handler);
 
-			printf("[ptr] %p => %d\n", ptr, *ptr);
+			//printf("[ptr] %p => %d\n", ptr, *ptr);
 		}
 	} // else do nothing
 
-	printf("[gptr] %p => %d\n", gptr, *gptr);
+	//printf("[gptr] %p => %d\n", gptr, *gptr);
 
 	rcommit(handler);
 	revwin_destroy(handler);
 	//free(gptr);
 
-	printf("[gptr] %p => %d\n", gptr, *gptr);
+	//printf("[gptr] %p => %d\n", gptr, *gptr);
 
 	return NULL;
 }
 
+void gotplt_hooking(void);
+static (*f)() = gotplt_hooking;
 
 // ======================================================== //
 int main(int argc, char **argv) {
@@ -277,6 +279,7 @@ int main(int argc, char **argv) {
 	void *thread_errno;
 	uint64_t initial_hash, final_hash;
 
+	printf("\n");
 	printf("\n");
 	printf("Test name: %s\n", argv[0]);
 	printf("===============================\n");
@@ -404,6 +407,29 @@ int main(int argc, char **argv) {
 	}
 
 	// Do the final cleanup
-	fini();
 	free(thread_id);
+	fini();
+
+	FILE *fsproc;
+	int size;
+	char *data;
+
+
+	fsproc = fopen("/proc/self/maps", "r");
+	if(fsproc == NULL){
+		printf("Error open proc file\n");
+	}
+
+	fseek(fsproc, 0L, SEEK_END);
+	size = ftell(fsproc);
+	rewind(fsproc);
+
+	data = malloc(size+1);
+	bzero(data, size+1);
+
+	fread(fsproc, 1, size, data);
+
+	fclose(fsproc);
+
+	printf("MAPS: %s\n", data);
 }

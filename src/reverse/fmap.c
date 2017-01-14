@@ -98,7 +98,6 @@ void map_functions(int argc, char **argv, char **envp) {
 
 __attribute__ ((section(".preinit_array"))) __typeof__(map_functions) * __map_function = map_functions;
 
-
 void * get_instrumented_address(void *addr_original) {
 	int idx;
 

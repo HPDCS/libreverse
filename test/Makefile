@@ -3,7 +3,7 @@
 CC = gcc
 INCLUDES = -I$(HOME)/git/libreverse/src
 
-CFLAGS = -g3 -O0 -Wall $(INCLUDES)
+CFLAGS = -g3 -rdynamic -O0 -Wall $(INCLUDES)
 LFLAGS = -L$(LIBDIR) $(LIBS)
 
 LIBDIR = $(HOME)/git/libreverse/usr/lib
@@ -11,7 +11,7 @@ LIBS = -lreverse -lpthread -lm
 
 HIJACKER = $(HOME)/git/hijacker/usr/bin/hijacker
 
-SRCS = hash.c utils.c ../src/reverse/fmap.c
+SRCS = hash.c utils.c
 OBJS = $(SRCS:.c=.o)
 
 TESTS = test1
