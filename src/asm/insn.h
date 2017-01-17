@@ -50,7 +50,7 @@
 #define I_PUSHPOP	0x4000	// Istruzione di tipo "push" o di tipo "pop"
 #define I_STACK		0x8000	// Se l'istruzione opera nello stack
 #define I_JUMPIND	0x10000	// Indirect Branch
-#define I_CALLIND 0x20000 // [SE] Indirect Call
+#define I_CALLIND	0x20000 // [SE] Indirect Call
 #define I_MEMIND	0x40000 // [SE] Indirect memory address load (LEA)
 
 // [FV] Macro per il testing dei flags

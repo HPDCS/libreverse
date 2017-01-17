@@ -1,6 +1,6 @@
 #pragma once
-#ifndef __REVERSE_H
-#define __REVERSE_H
+#ifndef _REVERSE_H
+#define _REVERSE_H
 
 #include <sys/types.h>
 
@@ -301,4 +301,4 @@ extern void print_cache_stats(void);
 
 extern void revwin_flush_cache(void);
 
-#endif /* __REVERSE_H */
+#endif /* _REVERSE_H */

@@ -1,5 +1,5 @@
-#ifndef _RALLOC_H_
-#define _RALLOC_H_
+#ifndef _RALLOC_H
+#define _RALLOC_H
 
 #include <stdbool.h>
 #include <unistd.h>
@@ -33,4 +33,4 @@ extern void rfree(reverse_t *rev, void * ptr);
 
 extern void rcommit(reverse_t *rev);
 
-#endif // _RALLOC_H_
+#endif // _RALLOC_H
