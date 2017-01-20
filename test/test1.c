@@ -12,6 +12,7 @@
 #include <reverse/reverse.h>
 #include <reverse/ralloc.h>
 #include <reverse/fmap.h>
+#include <gotplt.h>
 
 #include "hash.h"
 #include "utils.h"
@@ -352,6 +353,8 @@ int main(int argc, char **argv) {
 	printf("Check dominance is %s\n", enable_dominance_check ? "enabled" : "disabled");
 	printf("XMM reversing is %s\n", use_xmm ? "enabled" : "disabled");
 	printf("===============================\n\n");
+
+	switch_operational_mode(MODE_REVERSIBLE);
 
 	// Allocate memory to build threads
 	thread_id = malloc(thread_num * sizeof(thread_id));

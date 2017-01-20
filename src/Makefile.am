@@ -11,4 +11,4 @@ libreverse_a_SOURCES = instrument.c \
 		       reverse/ralloc.c \
 		       lend/ld.c \
 		       asm/src/x86/x86-dis.c \
-		       dl_selector.S
+		       dl_template.S
