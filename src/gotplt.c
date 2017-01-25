@@ -28,9 +28,20 @@
 #define RESOLVER_GOT_OFFSET 2
 #define GOT_LIB_SLOT(table, index) ((table)+(index)+RESOLVER_GOT_OFFSET+1)
 
+/**
+ * Intrumented instruction will be replaced by jmp to trampoline snippets;
+ * however, the original instruction may not be big enough to accomodate
+ * the new jump, therefore we create a buffer zone for the overflow bytes
+ * caused by the step-by-step cloning
+ */
+#define REDZONE 128
+
+#undef DEBUG
 
 unsigned long long *got, *gotplt, *plt;
 size_t got_size, gotplt_size, plt_size;
+
+char *original_gotplt;
 
 char *original_resolver;
 char *custom_resolver;
@@ -103,13 +114,18 @@ static symbol_info_t * lookup_symbol(const void *addr) {
  */
 void * dl_instrumenter(void *symaddr, int index) {
 	unsigned char *code, *trampoline, *selector;
+	unsigned char *lib;
 	unsigned int size, size_trampoline;
-	unsigned long int pos;
+	unsigned long int len, _dontcare;
 	symbol_info_t *si;
-	insn_info_x86 instr;
-	int flags;
-	char opcode;
-	int old_mode;
+	insn_info_x86 instr;	// Current instruction
+	int dflags;			// Disassembler flags
+	char opcode;		// Opcode of the current instruction
+	int old_mode;		// Library operational mode before instrumenter
+
+	char write_address[6];
+	int write_size;
+	int offset;
 
 	// The instrumenter MUST be executed in MODE_PLATFORM
 	old_mode = _dso_mode;
@@ -135,67 +151,95 @@ void * dl_instrumenter(void *symaddr, int index) {
 	// the worst case where all the instruction could instrumented
 	// times the size of the trampoline snippet appended
 	size_trampoline = dl_trampoline_size;
-	size = si->size * size_trampoline;
+	size = (si->size * size_trampoline) + REDZONE;
 	code = mmap(0, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if(code == MAP_FAILED) {
 		fprintf(stderr, "Error memory mapping\n");
 		abort();
 	}
+	lib = code;
 
 	// Initialize the trampoline pointer just after the end of the
 	// API original code in the new mmap so that to generate trampoline
 	// code snippets each time needed
-	trampoline = code + si->size;
+	trampoline = (code + si->size) + REDZONE;
 
 	// Copy the orignal API's code to the instrumeted one
-	memcpy(code, symaddr, size);
+	memcpy(code, symaddr, si->size);
 
 	printf("Found symbol at <%p> '%s' of size %d\n", si->address, si->name, si->size);
 
-	flags = 0;
+	dflags = 0;
+	//memset(&instr, 0, sizeof(insn_info_x86));
 
 	// === Walk the code ===
-	// In this step we have to do the following steps:
-	//   *1. Copy the instruction to the instrumented API (new mmap'ed page)*
+	// We have to do the following steps:
+	//   1. Copy the instruction to the instrumented API (new mmap'ed page)
 	//   2. At the same time, check if the instruction is a MEMWR
 	//      and in that case replace it with a JMP to the ad-hoc trampoline
 	//      code snippet (PLT-like)
 	//   3. Write a proper trampoline snippet at the end of the custom API
 	//      and rewrite the original MOV into it
-	while(pos < size) {
-		pos += length_disasm(code, MODE_X64);
+	//   4. Resolve all the RIP-relative references wrt the new code address
+	while(code < (lib + size)) {
+		len = length_disasm(code, MODE_X64);
 		opcode = *code;
+		_dontcare = 0;
 		
 		// Check if a REX prefix is met and skip it
 		// in order to read the primary opcode
-		if((opcode >> 4) == 0x40)
+		if((opcode >> 4) == 0x4) {
 			opcode = *(code+1);
+		}
 
 		// Look for a possible MOV opcode
-		if((opcode & 0xf0) == (0x80 | 0xA0 | 0xB0 | 0xC0)) {
+		register char op = opcode & 0xf0;
+		if(1 || op == 0x80 || op == 0xA0 || op == 0xB0 || op == 0xC0) {
 
-			// Disassemble the instruction iteself
-			x86_disassemble_instruction(code, &pos, &instr, flags);
+			printf("possible\n");
 
-			printf("Found %s\n", instr.mnemonic);
+			// Disassemble the instruction
+			x86_disassemble_instruction(code, &_dontcare, &instr, dflags);
 
-			// The MOV instruction writes on memory
+			// Check whether MOV instruction writes on memory
 			if(IS_MEMWR(&instr)) {
-				printf("Found a MEMWR\n");
+		instrument_memwr:
+				printf("Found MEMWR mov at <%p> (originally at <%p> '%s')\n", code, symaddr+(int)(code-lib), si->name);
 
-				// Replace it with the jump to the ad-hoc trampoline
-				// to append at the end of the instrumented API code
+				// NOTE
+				// In order to recompute the target address we have to keep in mind
+				// that this code is not actually in execution therefore, we cannot
+				// to simply solve the addressing to get the write address; instead
+				// we have to let the runtime assembly do it for us.
+				// So, the idea is to embed the addressing mode (Mod/RM + SIB) within
+				// a new lea instruction to pass the result to our trampoline;
+				// unfortunatly this operation cannot be performed wholly automatically
+				// since not all the opcode treats Mod/RM operands in the same order...
 
-				// Get the target address and the write size
-				// instr.flags
+				// ----------------------------------------------------------------------
+				// | Prefix | Opcode | Mod/RM | SIB |   Displacement   |   Immediate    |
+				// ----------------------------------------------------------------------
+				// | 1 byte | 1 byte | 1 byte |1byte|     4 byte       |     4 byte     |
 
-				// displacement + (base + index * scale)
-				char write_address[5];
-				int write_size;
-				int offset;
+				
+				// Clone Mod/RM byte and force destination register as %rdi (7)
+				memset(write_address, 0x90, sizeof(write_address));
+				*write_address = (instr.modrm | (0x7 << 3));
 
-				*write_address = instr.sib;
-				*(write_address+1) = (int)instr.disp;
+				// Check whether the RM flag indicates SIB byte presence
+				if((instr.modrm & 0x7) == 0x4) {
+					*(write_address+1) = instr.sib;
+
+					switch(instr.modrm >> 6){
+						case 1:
+							*(write_address+2) = (char)instr.disp;
+							break;
+
+						case 2:
+							*(write_address+2) = (int)instr.disp;
+							break;
+					}
+				}
 				write_size = instr.span;
 
 				// Write a new trampoline snippet from the model
@@ -205,27 +249,78 @@ void * dl_instrumenter(void *symaddr, int index) {
 				offset = (trampoline - code) + instr.insn_size;
 				memcpy(get_code_ptr(trampoline, trmp_lea_offset), &write_address, sizeof(write_address));
 				memcpy(get_code_ptr(trampoline, trmp_mov_offset), &write_size, sizeof(write_size));
-				memcpy(get_code_ptr(trampoline, trmp_ret_offset), &offset, sizeof(offset));
 
-				// Clone the original MOV instruction
+				// Clone the original MOV instruction right in the trampoline snippet
 				memcpy(get_code_ptr(trampoline, trmp_orig_offset), &instr.insn, instr.insn_size);
 
-				//unsigned char jmp[5] = {0xe9, 0x00, 0x00, 0x00, 0x00};
+				// Ready to copy another template in the next right slot
+				trampoline += size_trampoline;
+
+				// If the original instruction is not bug enough we have to use the following
+				// one, however this could be another memwr itself..therefore we forward
+				// instrument also the second one, here, in place
+				if(unlikely(instr.insn_size < 5)) {
+					x86_disassemble_instruction(code+len, &_dontcare, &instr, dflags);
+					
+					// here `len` holds the length of the previous instruction
+					//memcpy(get_code_ptr(trampoline, trmp_orig_offset+len), &instr.insn, instr.insn_size);
+					
+					// Update the length so that the cycle will take into account the fact we
+					// parsed also the following instruction
+					len += instr.insn_size;
+
+					// If the following instruction is a memwr, we do the instrumentation
+					// step again, takeing into account the length of both the instructions.
+					// Trampoline is yet updated, therefore when we re-instrument we will have
+					// another trampoline in cascade. The only thing we have to guarantee in 
+					// the previous trampoline is to jump to the following one, but this is
+					// guaranteed by the fact that the template has a relative offset of zero
+					if(IS_MEMWR(&instr)) {
+						goto instrument_memwr;
+					}
+				}
+
+				// Embed the relative offset towards the orignal `code` point--which is not
+				// incremented in the case of chained trampolines.
+				// NOTE: the pointer `trampoline-size_trampline` is CORRECT provided that
+				// we pre-increment the trampoline pointer before the check of a subsequent
+				// memwr instruction; in this way we do not have to handle the increment
+				// twice: one in whitin the `if` and one just after.
+				memcpy(get_code_ptr((trampoline-size_trampoline), trmp_ret_offset), &offset, sizeof(offset));
 
 				// Overwrite the value of the original instruction with
 				// the jump to the trampoline---which performs this instruction
 				// and returns the control next to it in the original code
-				assert(instr.insn_size >= 5);
+				//assert(instr.insn_size >= 5);
 				
+				// Now, replace memwr mov with a jump to the ad-hoc trampoline
+				// appended at the end of the API code.
 				offset = -offset;
-				memset(code, 0, instr.insn_size);
+				memset(code, 0x90, len);
 				*code = 0xe9;
 				memcpy(code+1, &offset, sizeof(offset));
-
-				trampoline += size_trampoline;
 			}
 		}
+
+		// Realign RIP-relative addressing
+		// NOTE: `has_rip_relative` macro tells whether the last instrution parsed by
+		// lend does rely on rip relative addressing mode or not
+		if(has_rip_relative()) {
+			// printf("Found RIP-relative instruction '%s' <%p>\n", instr.mnemonic, code);
+			x86_disassemble_instruction(code, &_dontcare, &instr, dflags);
+
+			// Fix the relative displacement
+			// The new offset can be computed as the previous incremented
+			// by the difference by the two starting address of the original
+			// API with the patched one
+			offset = instr.disp + ((unsigned char *)symaddr - lib);
+			memcpy(code+instr.disp_offset, &offset, sizeof(int));
+		}
+
+		// Step forward to the next instruction
+		code += len;
 	}
+
 
 	// Instrumented code has to be placed into the fake got
 	// in order to call the proper function depending on the
@@ -239,7 +334,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 
 	// Generate and wire addresses
 	memcpy(get_code_ptr(selector, address_original), &symaddr, sizeof(void *));
-	memcpy(get_code_ptr(selector, address_instrumented), &code, sizeof(void *));
+	memcpy(get_code_ptr(selector, address_instrumented), &lib, sizeof(void *));
 
 	assert(fake_got != NULL);
 
@@ -387,6 +482,14 @@ static void gotplt_resolve_address(int argc, char **argv, char **envp) {
 	printf("gotplt at %p\n", gotplt);
 	printf("plt at %p\n", plt);
 
+	// Dump content of the original GOTPLT
+	original_gotplt = mmap(0, gotplt_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if(original_gotplt == MAP_FAILED) {
+		fprintf(stderr, "Error on memory mapping\n");
+		abort();
+	}
+	memcpy(original_gotplt, gotplt, gotplt_size);
+
 	printf("Done\n");
 	printf("==========================================\n");
 
@@ -457,7 +560,7 @@ static void symbol_import(int argc, char **argv, char **envp) {
     	}
 
     	snprintf(buffer, sizeof(buffer),
-			"nm -SDP --defined-only '%s' | grep -e ' [tTW] ' | awk '{ print $1 \" \" $3 \" \" $4 }' > /tmp/syms",
+			"nm -SP --defined-only '%s' | grep -e ' [tTW] ' | awk '{ print $1 \" \" $3 \" \" $4 }' > /tmp/syms",
 			// "nm -SDP '%s' | awk '{ print $1 \" \" $3 \" \" $4 }' > /tmp/syms",
 			dep_name);
 		system(buffer);
@@ -486,6 +589,16 @@ static void symbol_import(int argc, char **argv, char **envp) {
 
 	unlink("/tmp/syms");
 	unlink("/tmp/deps");
+
+	// FIXME: debug only!!!
+#ifdef DEBUG
+	sym = symtab;
+	while(sym) {
+		printf("%s at <%p>\n", sym->name, sym->address);
+		sym = sym->next;
+	}
+#endif
+
 }
 // __attribute__ ((section(".preinit_array"))) __typeof__(dump_symbols) *__dump_symbols = dump_symbols;
 
@@ -511,6 +624,10 @@ __attribute__ ((section(".preinit_array"))) __typeof__(_libreverse_preinit) *__l
 
 
 void __attribute__ ((constructor)) gotplt_hooking(void) {
+	// Just before to run the real program we need to reinit the GOTPLT
+	// otherwise the yet resolved API will override the actual patch
+	memcpy(gotplt, original_gotplt, gotplt_size);
+
 	// Change the absolute address of the resolver
 	// NOTE: this operation must be done after the resolver code
 	// has been cloned and patched, otherwhise, we incur into the
@@ -523,4 +640,6 @@ void switch_operational_mode(int flags) {
 	//assert(!(flags & -0x3));
 
 	_dso_mode = flags;
+
+	printf("Switch to %s mode", _dso_mode == MODE_PLATFORM ? "platform" : "reversible");
 }

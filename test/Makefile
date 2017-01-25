@@ -23,8 +23,8 @@ all: $(TESTS)
 
 
 test1: $(OBJS) test1.o
-	$(HIJACKER) -c conf.xml -i $@.o -o $@_instrumented.o #-vvvvv
-	$(CC) $@_instrumented.o $(OBJS) $(LFLAGS) -o $@
+	#$(HIJACKER) -c conf.xml -i $@.o -o $@_instrumented.o #-vvvvv
+	$(CC) $@.o $(OBJS) $(LFLAGS) -o $@
 	@echo "${@} generated!"
 
 %.o: %.c

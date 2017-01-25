@@ -5029,6 +5029,9 @@ void x86_disassemble_instruction (unsigned char *text, unsigned long *pos, insn_
 	state.opcode[0] = 0x00;
 	state.opcode[1] = 0x00;
 
+  // [DC] to prevent spurious data when the same pointer is given
+  bzero(&instrument, sizeof(insn_info_x86));
+
 	state.instrument = instrument;
 	state.instrument->initial = *pos;
 
