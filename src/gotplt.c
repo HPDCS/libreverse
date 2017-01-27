@@ -28,14 +28,6 @@
 #define RESOLVER_GOT_OFFSET 2
 #define GOT_LIB_SLOT(table, index) ((table)+(index)+RESOLVER_GOT_OFFSET+1)
 
-/**
- * Intrumented instruction will be replaced by jmp to trampoline snippets;
- * however, the original instruction may not be big enough to accomodate
- * the new jump, therefore we create a buffer zone for the overflow bytes
- * caused by the step-by-step cloning
- */
-#define REDZONE 128
-
 #undef DEBUG
 
 unsigned long long *got, *gotplt, *plt;
@@ -151,7 +143,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 	// the worst case where all the instruction could instrumented
 	// times the size of the trampoline snippet appended
 	size_trampoline = dl_trampoline_size;
-	size = (si->size * size_trampoline) + REDZONE;
+	size = (si->size * size_trampoline);
 	code = mmap(0, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if(code == MAP_FAILED) {
 		fprintf(stderr, "Error memory mapping\n");
@@ -162,7 +154,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 	// Initialize the trampoline pointer just after the end of the
 	// API original code in the new mmap so that to generate trampoline
 	// code snippets each time needed
-	trampoline = (code + si->size) + REDZONE;
+	trampoline = (code + si->size);
 
 	// Copy the orignal API's code to the instrumeted one
 	memcpy(code, symaddr, si->size);
@@ -186,14 +178,15 @@ void * dl_instrumenter(void *symaddr, int index) {
 		opcode = *code;
 		_dontcare = 0;
 		
-		// Check if a REX prefix is met and skip it
-		// in order to read the primary opcode
+		// Check if a REX prefix is met and skip it to read the primary opcode
 		if((opcode >> 4) == 0x4) {
 			opcode = *(code+1);
 		}
 
 		// Look for a possible MOV opcode
 		register char op = opcode & 0xf0;
+		// FIXME: ottimizzare!!
+		// FIXME: rimuovere branch forzata
 		if(1 || op == 0x80 || op == 0xA0 || op == 0xB0 || op == 0xC0) {
 
 			printf("possible\n");
@@ -221,40 +214,39 @@ void * dl_instrumenter(void *symaddr, int index) {
 				// ----------------------------------------------------------------------
 				// | 1 byte | 1 byte | 1 byte |1byte|     4 byte       |     4 byte     |
 
-				
+				int idx = 1;
+
 				// Clone Mod/RM byte and force destination register as %rdi (7)
+				// FIXME: ottimizzare!!
 				memset(write_address, 0x90, sizeof(write_address));
 				*write_address = (instr.modrm | (0x7 << 3));
 
 				// Check whether the RM flag indicates SIB byte presence
 				if((instr.modrm & 0x7) == 0x4) {
-					*(write_address+1) = instr.sib;
-
-					switch(instr.modrm >> 6){
-						case 1:
-							*(write_address+2) = (char)instr.disp;
-							break;
-
-						case 2:
-							*(write_address+2) = (int)instr.disp;
-							break;
-					}
+					*(write_address+(idx++)) = instr.sib;
 				}
+
+				switch(instr.modrm >> 6){
+					case 1:
+						*(write_address+idx) = (char)instr.disp;
+						break;
+
+					case 2:
+						*(write_address+idx) = (int)instr.disp;
+						break;
+				}
+
 				write_size = instr.span;
 
 				// Write a new trampoline snippet from the model
 				memcpy(trampoline, dl_trampoline, size_trampoline);
 
 				// Reslove actual values
-				offset = (trampoline - code) + instr.insn_size;
 				memcpy(get_code_ptr(trampoline, trmp_lea_offset), &write_address, sizeof(write_address));
 				memcpy(get_code_ptr(trampoline, trmp_mov_offset), &write_size, sizeof(write_size));
 
 				// Clone the original MOV instruction right in the trampoline snippet
 				memcpy(get_code_ptr(trampoline, trmp_orig_offset), &instr.insn, instr.insn_size);
-
-				// Ready to copy another template in the next right slot
-				trampoline += size_trampoline;
 
 				// If the original instruction is not bug enough we have to use the following
 				// one, however this could be another memwr itself..therefore we forward
@@ -262,13 +254,6 @@ void * dl_instrumenter(void *symaddr, int index) {
 				if(unlikely(instr.insn_size < 5)) {
 					x86_disassemble_instruction(code+len, &_dontcare, &instr, dflags);
 					
-					// here `len` holds the length of the previous instruction
-					//memcpy(get_code_ptr(trampoline, trmp_orig_offset+len), &instr.insn, instr.insn_size);
-					
-					// Update the length so that the cycle will take into account the fact we
-					// parsed also the following instruction
-					len += instr.insn_size;
-
 					// If the following instruction is a memwr, we do the instrumentation
 					// step again, takeing into account the length of both the instructions.
 					// Trampoline is yet updated, therefore when we re-instrument we will have
@@ -276,9 +261,22 @@ void * dl_instrumenter(void *symaddr, int index) {
 					// the previous trampoline is to jump to the following one, but this is
 					// guaranteed by the fact that the template has a relative offset of zero
 					if(IS_MEMWR(&instr)) {
+						// Ready to copy another template in the next right slot
+						trampoline += size_trampoline;
+
 						goto instrument_memwr;
 					}
+
+					// here `len` holds the length of the previous instruction
+					memcpy(get_code_ptr(trampoline, trmp_orig_offset+len), &instr.insn, instr.insn_size);
+
+					// Update the length so that the cycle will take into account the fact we
+					// parsed also the following instruction
+					len += instr.insn_size;
 				}
+
+				// Ready to copy another template in the next right slot
+				trampoline += size_trampoline;
 
 				// Embed the relative offset towards the orignal `code` point--which is not
 				// incremented in the case of chained trampolines.
@@ -286,7 +284,8 @@ void * dl_instrumenter(void *symaddr, int index) {
 				// we pre-increment the trampoline pointer before the check of a subsequent
 				// memwr instruction; in this way we do not have to handle the increment
 				// twice: one in whitin the `if` and one just after.
-				memcpy(get_code_ptr((trampoline-size_trampoline), trmp_ret_offset), &offset, sizeof(offset));
+				offset = (trampoline - code) + len;
+				memcpy(get_code_ptr(trampoline, trmp_ret_offset), &offset, sizeof(offset));
 
 				// Overwrite the value of the original instruction with
 				// the jump to the trampoline---which performs this instruction
@@ -296,6 +295,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 				// Now, replace memwr mov with a jump to the ad-hoc trampoline
 				// appended at the end of the API code.
 				offset = -offset;
+				// FIXME: ottimizzare!!
 				memset(code, 0x90, len);
 				*code = 0xe9;
 				memcpy(code+1, &offset, sizeof(offset));

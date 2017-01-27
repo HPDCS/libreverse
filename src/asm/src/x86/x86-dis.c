@@ -5014,6 +5014,7 @@ void format_addr_op (struct disassembly_state *state, enum addr_method addr, enu
 /* x86_disassemble_instruction
  * Disassembla l'istruzione a text + *pos e restituisce una
  * riga di assembly dopo aver aggiornato *pos
+ * FIXME: eliminare `pos`
  */
 void x86_disassemble_instruction (unsigned char *text, unsigned long *pos, insn_info_x86 *instrument, char flags) {
 	int k = 0;
@@ -5030,7 +5031,7 @@ void x86_disassemble_instruction (unsigned char *text, unsigned long *pos, insn_
 	state.opcode[1] = 0x00;
 
   // [DC] to prevent spurious data when the same pointer is given
-  bzero(&instrument, sizeof(insn_info_x86));
+  bzero(instrument, sizeof(insn_info_x86));
 
 	state.instrument = instrument;
 	state.instrument->initial = *pos;
