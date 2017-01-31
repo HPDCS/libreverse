@@ -19,11 +19,37 @@
 .type	dl_prepare_resolver, @function
 
 dl_prepare_resolver:
+
+	# Retrieve the value of the index into the GOTPLT
+	movq -0x8(%rsp),%rax
+
+	# Save all passing-value registers
+	push %rcx
+	push %rdx
+	push %rbx
+	push %rbp
+	push %rsi
+	push %rdi
+	push %r9
+	push %r8
+
 	# Call the instrumenter
 	movq %r11,%rdi
-	movq -0x8(%rsp),%rsi
+	movq %rax,%rsi
+
 	call dl_instrumenter
-	jmp *%rax			# Jump to the selector
+
+	pop %r8
+	pop %r9
+	pop	%rdi
+	pop	%rsi
+	pop	%rbp
+	pop	%rbx
+	pop	%rdx
+	pop	%rcx
+
+	# Jump to the selector (%rax contains the return value of `dl_instrumenter`)
+	jmp *%rax
 
 .size	dl_prepare_resolver, .-dl_prepare_resolver
 
@@ -51,7 +77,7 @@ dl_trampoline:
 	push %rbp
 	push %rsi
 	push %rdi
-	
+
 	push %r8
 	push %r9
 	push %r10
@@ -60,7 +86,7 @@ dl_trampoline:
 	push %r13
 	push %r14
 	push %r15
-	
+
 	# Push dei primi 4 registri vettoriali
 	sub	$16,%rsp
 	movsd	%xmm0,(%rsp)
@@ -71,15 +97,22 @@ dl_trampoline:
 	sub	$16,%rsp
 	movsd	%xmm3,(%rsp)
 
+	# rsp is compromised but lea could be use it, therefore we
+	# must to temporary restore it to its original value just
+	# before to call this trampoline
+	add $200,%rsp
+
 	# lea is 4 bytes and the SIB is at 3rd byte (offset = 2)
 	# movq is 7 bytes and displacement is at 4th byte (offset = 3)
 
 	# lea's SIB is where the instrumenter will put the actual value
 	lea_trampoline:
 	lea 0xd3b0(%rax,%rax,1),%rdi	# initialize %rdi with the destination address
-	
+
 	mov_trampoline:
 	movq $0x0,%rsi 				# initialize %rsi with the size of the write
+
+	sub $200,%rsp
 
 	# `reverse_code_generator` wants params initialize in %rdi and %rsi:
 	# %rdi := the address to which the instruction will write on
@@ -103,7 +136,7 @@ dl_trampoline:
 	pop	%r10
 	pop	%r9
 	pop	%r8
-	
+
 	pop	%rdi
 	pop	%rsi
 	pop	%rbp

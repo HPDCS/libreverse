@@ -175,18 +175,6 @@ static void fini() {
 
 
 /**
- * Simply execute the whole reverse window in order to rollback
- * at the very beginning of the execution. Therefore the hash of data
- * sections can be recomputed again to check against the former one.
- *
- * @author Davide Cingolani
- */
-static void reverse_all() {
-
-}
-
-
-/**
  * Do the actual work.
  *
  * @author Davide Cingolani
@@ -210,8 +198,8 @@ void write_memory(int tid) {
  */
 void * worker(void *args) {
 	reverse_t *handler;
-	int *ptr;
-	int *gptr;
+	// int *ptr;
+	// int *gptr;
 
 	tid = *((int *)args);
 
@@ -268,9 +256,6 @@ void * worker(void *args) {
 
 	return NULL;
 }
-
-void gotplt_hooking(void);
-static (*f)() = gotplt_hooking;
 
 // ======================================================== //
 int main(int argc, char **argv) {
@@ -412,27 +397,4 @@ int main(int argc, char **argv) {
 	// Do the final cleanup
 	free(thread_id);
 	fini();
-
-	FILE *fsproc;
-	int size;
-	char *data;
-
-
-	fsproc = fopen("/proc/self/maps", "r");
-	if(fsproc == NULL){
-		printf("Error open proc file\n");
-	}
-
-	fseek(fsproc, 0L, SEEK_END);
-	size = ftell(fsproc);
-	rewind(fsproc);
-
-	data = malloc(size+1);
-	bzero(data, size+1);
-
-	fread(fsproc, 1, size, data);
-
-	fclose(fsproc);
-
-	printf("MAPS: %s\n", data);
 }

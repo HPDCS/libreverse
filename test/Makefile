@@ -14,7 +14,7 @@ HIJACKER = $(HOME)/git/hijacker/usr/bin/hijacker
 SRCS = hash.c utils.c
 OBJS = $(SRCS:.c=.o)
 
-TESTS = test1
+TESTS = test test1
 
 GDB = gdb --tui --args
 
@@ -22,8 +22,12 @@ GDB = gdb --tui --args
 all: $(TESTS)
 
 
-test1: $(OBJS) test1.o
+test: $(OBJS) test.o
 	#$(HIJACKER) -c conf.xml -i $@.o -o $@_instrumented.o #-vvvvv
+	$(CC) $@.o $(OBJS) $(LFLAGS) -o $@
+	@echo "${@} generated!"
+
+test1: $(OBJS) test1.o
 	$(CC) $@.o $(OBJS) $(LFLAGS) -o $@
 	@echo "${@} generated!"
 

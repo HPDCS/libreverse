@@ -109,6 +109,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 	unsigned char *lib;
 	unsigned int size, size_trampoline;
 	unsigned long int len, _dontcare;
+	int no_instr;
 	symbol_info_t *si;
 	insn_info_x86 instr;	// Current instruction
 	int dflags;			// Disassembler flags
@@ -118,6 +119,7 @@ void * dl_instrumenter(void *symaddr, int index) {
 	char write_address[6];
 	int write_size;
 	int offset;
+	int idx;
 
 	// The instrumenter MUST be executed in MODE_PLATFORM
 	old_mode = _dso_mode;
@@ -133,6 +135,8 @@ void * dl_instrumenter(void *symaddr, int index) {
 		fprintf(stderr, "Unable to lookup symbol at <%p>\n", symaddr);
 		abort();
 	}
+
+	printf("Found symbol at <%p> '%s' of size %d\n", si->address, si->name, si->size);
 
 	// Once we know the size of the API function to call
 	// we mmap new pages to store the instrumented code.
@@ -159,10 +163,10 @@ void * dl_instrumenter(void *symaddr, int index) {
 	// Copy the orignal API's code to the instrumeted one
 	memcpy(code, symaddr, si->size);
 
-	printf("Found symbol at <%p> '%s' of size %d\n", si->address, si->name, si->size);
-
-	dflags = 0;
+	dflags = DATA_64 | ADDR_64;
 	//memset(&instr, 0, sizeof(insn_info_x86));
+
+
 
 	// === Walk the code ===
 	// We have to do the following steps:
@@ -173,10 +177,34 @@ void * dl_instrumenter(void *symaddr, int index) {
 	//   3. Write a proper trampoline snippet at the end of the custom API
 	//      and rewrite the original MOV into it
 	//   4. Resolve all the RIP-relative references wrt the new code address
-	while(code < (lib + size)) {
+	idx = 0;
+	while(code < (lib + si->size)) {
 		len = length_disasm(code, MODE_X64);
 		opcode = *code;
 		_dontcare = 0;
+
+		printf("code: %p :: offset: %x\n", code, (code-lib));
+		printf("instruction: \n");
+		int i;
+		for(i=0; i<len; i++) {
+			printf("%#0hhx ", *(code+i));
+		}
+		printf("\n");
+
+		// Realign RIP-relative addressing
+		// NOTE: `has_rip_relative` macro tells whether the last instrution parsed by
+		// lend does rely on rip relative addressing mode or not
+		if(has_rip_relative()) {
+			// printf("Found RIP-relative instruction '%s' <%p>\n", instr.mnemonic, code);
+			x86_disassemble_instruction(code, &_dontcare, &instr, dflags);
+
+			// Fix the relative displacement
+			// The new offset can be computed as the previous incremented
+			// by the difference by the two starting address of the original
+			// API with the patched one
+			offset = instr.disp + ((unsigned char *)symaddr - lib);
+			memcpy(code+instr.disp_offset, &offset, sizeof(int));
+		}
 		
 		// Check if a REX prefix is met and skip it to read the primary opcode
 		if((opcode >> 4) == 0x4) {
@@ -185,19 +213,26 @@ void * dl_instrumenter(void *symaddr, int index) {
 
 		// Look for a possible MOV opcode
 		register char op = opcode & 0xf0;
-		// FIXME: ottimizzare!!
+		// TODO: ottimizzare usando bitmask
 		// FIXME: rimuovere branch forzata
 		if(1 || op == 0x80 || op == 0xA0 || op == 0xB0 || op == 0xC0) {
 
-			printf("possible\n");
-
 			// Disassemble the instruction
+			_dontcare = 0;
 			x86_disassemble_instruction(code, &_dontcare, &instr, dflags);
+
+			// FIXME: debug purpose only!!
+			// verifica che lend e x86-dis siano coerenti fra loro
+			if(len != instr.insn_size) {
+				printf("'%s' lend: %d <<>> x86-dis: %d\n", instr.mnemonic, len, instr.insn_size);
+				abort();
+			}
+			//////////////////////////////
 
 			// Check whether MOV instruction writes on memory
 			if(IS_MEMWR(&instr)) {
 		instrument_memwr:
-				printf("Found MEMWR mov at <%p> (originally at <%p> '%s')\n", code, symaddr+(int)(code-lib), si->name);
+				// printf("Found MEMWR mov at <%p> (originally at <%p> '%s')\n", code, symaddr+(int)(code-lib), si->name);
 
 				// NOTE
 				// In order to recompute the target address we have to keep in mind
@@ -206,15 +241,17 @@ void * dl_instrumenter(void *symaddr, int index) {
 				// we have to let the runtime assembly do it for us.
 				// So, the idea is to embed the addressing mode (Mod/RM + SIB) within
 				// a new lea instruction to pass the result to our trampoline;
-				// unfortunatly this operation cannot be performed wholly automatically
-				// since not all the opcode treats Mod/RM operands in the same order...
+				// NOTE: i'm not sure that way is safe in all the possible cases, since
+				// not all the opcode may treats Mod/RM operands in the same order,
+				// we should consider also the direction bit within the opcode...
 
 				// ----------------------------------------------------------------------
 				// | Prefix | Opcode | Mod/RM | SIB |   Displacement   |   Immediate    |
 				// ----------------------------------------------------------------------
-				// | 1 byte | 1 byte | 1 byte |1byte|     4 byte       |     4 byte     |
+				// ^        ^        ^        ^     ^                  ^                ^
+				// | 1 byte | 1 byte | 1 byte |1byte|     4 bytes      |    4 bytes     |
 
-				int idx = 1;
+				idx = 1;
 
 				// Clone Mod/RM byte and force destination register as %rdi (7)
 				// FIXME: ottimizzare!!
@@ -226,7 +263,8 @@ void * dl_instrumenter(void *symaddr, int index) {
 					*(write_address+(idx++)) = instr.sib;
 				}
 
-				switch(instr.modrm >> 6){
+				// Clone the displacement, if any
+				switch(instr.modrm >> 6) {
 					case 1:
 						*(write_address+idx) = (char)instr.disp;
 						break;
@@ -241,18 +279,29 @@ void * dl_instrumenter(void *symaddr, int index) {
 				// Write a new trampoline snippet from the model
 				memcpy(trampoline, dl_trampoline, size_trampoline);
 
-				// Reslove actual values
+				// Reslove actual values into insturction placeholders
 				memcpy(get_code_ptr(trampoline, trmp_lea_offset), &write_address, sizeof(write_address));
 				memcpy(get_code_ptr(trampoline, trmp_mov_offset), &write_size, sizeof(write_size));
 
-				// Clone the original MOV instruction right in the trampoline snippet
+				// Clone the original MOV instruction right into the trampoline snippet
 				memcpy(get_code_ptr(trampoline, trmp_orig_offset), &instr.insn, instr.insn_size);
+
 
 				// If the original instruction is not bug enough we have to use the following
 				// one, however this could be another memwr itself..therefore we forward
 				// instrument also the second one, here, in place
-				if(unlikely(instr.insn_size < 5)) {
+				if(instr.insn_size < 5) {
 					x86_disassemble_instruction(code+len, &_dontcare, &instr, dflags);
+
+					// Update the length so that the cycle will take into account the fact we
+					// parsed also the following instruction
+					len += instr.insn_size;
+
+					// FIXME: what if the instruction is a relative jump targeting something
+					// inside the trampoline?
+					if(IS_JUMP(&instr)) {
+						
+					}
 					
 					// If the following instruction is a memwr, we do the instrumentation
 					// step again, takeing into account the length of both the instructions.
@@ -269,10 +318,6 @@ void * dl_instrumenter(void *symaddr, int index) {
 
 					// here `len` holds the length of the previous instruction
 					memcpy(get_code_ptr(trampoline, trmp_orig_offset+len), &instr.insn, instr.insn_size);
-
-					// Update the length so that the cycle will take into account the fact we
-					// parsed also the following instruction
-					len += instr.insn_size;
 				}
 
 				// Ready to copy another template in the next right slot
@@ -280,10 +325,6 @@ void * dl_instrumenter(void *symaddr, int index) {
 
 				// Embed the relative offset towards the orignal `code` point--which is not
 				// incremented in the case of chained trampolines.
-				// NOTE: the pointer `trampoline-size_trampline` is CORRECT provided that
-				// we pre-increment the trampoline pointer before the check of a subsequent
-				// memwr instruction; in this way we do not have to handle the increment
-				// twice: one in whitin the `if` and one just after.
 				offset = (trampoline - code) + len;
 				memcpy(get_code_ptr(trampoline, trmp_ret_offset), &offset, sizeof(offset));
 
@@ -300,21 +341,6 @@ void * dl_instrumenter(void *symaddr, int index) {
 				*code = 0xe9;
 				memcpy(code+1, &offset, sizeof(offset));
 			}
-		}
-
-		// Realign RIP-relative addressing
-		// NOTE: `has_rip_relative` macro tells whether the last instrution parsed by
-		// lend does rely on rip relative addressing mode or not
-		if(has_rip_relative()) {
-			// printf("Found RIP-relative instruction '%s' <%p>\n", instr.mnemonic, code);
-			x86_disassemble_instruction(code, &_dontcare, &instr, dflags);
-
-			// Fix the relative displacement
-			// The new offset can be computed as the previous incremented
-			// by the difference by the two starting address of the original
-			// API with the patched one
-			offset = instr.disp + ((unsigned char *)symaddr - lib);
-			memcpy(code+instr.disp_offset, &offset, sizeof(int));
 		}
 
 		// Step forward to the next instruction
@@ -641,5 +667,5 @@ void switch_operational_mode(int flags) {
 
 	_dso_mode = flags;
 
-	printf("Switch to %s mode", _dso_mode == MODE_PLATFORM ? "platform" : "reversible");
+	printf("Switch to %s mode\n", _dso_mode == MODE_PLATFORM ? "platform" : "reversible");
 }
